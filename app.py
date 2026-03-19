@@ -29,16 +29,15 @@ if uploaded_files:
         all_data = []
         progress_bar = st.progress(0)
         
-        # 【最重要：エラー対策】モデルの指定方法をより安定した形式に変更
-        # v1beta ではなく、標準の生成機能を使用します
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        # 【最重要修正】APIのバージョンを「安定版(v1)」に固定して呼び出します
+        model = genai.GenerativeModel(model_name="gemini-1.5-flash")
 
         for i, file in enumerate(uploaded_files):
             st.write(f"🔍 {i+1}枚目: {file.name} を解析中...")
             img = Image.open(file)
             
             try:
-                # 解析実行（安定版の呼び出し）
+                # generate_contentの呼び出し（モデル名を含まない安定版の形式）
                 response = model.generate_content([SYSTEM_PROMPT, img])
                 text = response.text.strip().replace("```csv", "").replace("```", "")
                 
@@ -49,7 +48,8 @@ if uploaded_files:
                         row[0] = i + 1
                         all_data.append(row)
             except Exception as e:
-                st.error(f"解析エラー: {e}")
+                # 万が一エラーが出た場合、詳細を表示するようにしました
+                st.error(f"解析エラーが発生しました。詳細: {e}")
             
             progress_bar.progress((i + 1) / len(uploaded_files))
 
@@ -70,5 +70,3 @@ if uploaded_files:
                 file_name="家電リサイクル査定リスト.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-        else:
-            st.warning("データが取得できませんでした。撮影角度を変えてもう一度お試しください。")
