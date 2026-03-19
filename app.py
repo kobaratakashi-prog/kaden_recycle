@@ -6,7 +6,7 @@ import io
 
 # --- 1. アプリの設定 ---
 st.set_page_config(page_title="家電リサイクル査定くん", layout="wide")
-st.title("📱 家電リサイクル査定くん (2026.2 本格Excel版)")
+st.title("📱 家電リサイクル査定くん (2026.2 最終安定版)")
 
 # 魔法の鍵を読み込み
 api_key = st.secrets["GEMINI_API_KEY"]
@@ -15,7 +15,7 @@ genai.configure(api_key=api_key)
 # --- 2. AIへの指示書 ---
 SYSTEM_PROMPT = """
 あなたは家電リサイクル査定のプロです。
-写真から製品情報を抽出し、正確な料金区分を特定してください。
+写真から製品情報を抽出し、正確なリサイクル料金区分を特定してください。
 【出力形式】
 以下の項目を「カンマ区切り」でデータのみ1行で出力してください。
 通番, カテゴリ, 製造業者等名, 型番, 製造業者等名の略称, コード, 大小区分, 品目・料金区分コード, リサイクル料金(税込), 備考
@@ -29,15 +29,16 @@ if uploaded_files:
         all_data = []
         progress_bar = st.progress(0)
         
-        # 【修正ポイント】モデル名を「models/gemini-1.5-flash」に固定
-        model = genai.GenerativeModel("models/gemini-1.5-flash")
+        # 【最重要：エラー対策】モデルの指定方法をより安定した形式に変更
+        # v1beta ではなく、標準の生成機能を使用します
+        model = genai.GenerativeModel("gemini-1.5-flash")
 
         for i, file in enumerate(uploaded_files):
             st.write(f"🔍 {i+1}枚目: {file.name} を解析中...")
             img = Image.open(file)
             
             try:
-                # 解析実行
+                # 解析実行（安定版の呼び出し）
                 response = model.generate_content([SYSTEM_PROMPT, img])
                 text = response.text.strip().replace("```csv", "").replace("```", "")
                 
@@ -53,7 +54,7 @@ if uploaded_files:
             progress_bar.progress((i + 1) / len(uploaded_files))
 
         if all_data:
-            st.success("全ての解析が完了しました！")
+            st.success("解析が完了しました！")
             columns = ["通番", "カテゴリ", "製造業者等名", "型番", "製造業者等名の略称", "コード", "大小区分", "品目・料金区分コード", "リサイクル料金(税込)", "備考"]
             df = pd.DataFrame(all_data, columns=columns)
             st.dataframe(df, use_container_width=True)
@@ -66,6 +67,8 @@ if uploaded_files:
             st.download_button(
                 label="Excelファイルをダウンロードする",
                 data=buffer.getvalue(),
-                file_name="家電リサイクル査定リスト_2026.xlsx",
+                file_name="家電リサイクル査定リスト.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+        else:
+            st.warning("データが取得できませんでした。撮影角度を変えてもう一度お試しください。")
