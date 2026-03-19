@@ -15,10 +15,9 @@ genai.configure(api_key=api_key)
 # --- 2. AIへの指示書 ---
 SYSTEM_PROMPT = """
 あなたは家電リサイクル査定のプロです。
-写真から製品情報を抽出し、Google検索で「RKC 2026年2月版 料金表」を確認して、正確なコードと料金を特定してください。
-
+写真から製品情報を抽出し、正確な料金区分を特定してください。
 【出力形式】
-以下の項目を「カンマ区切り」で出力してください。
+以下の項目を「カンマ区切り」でデータのみ1行で出力してください。
 通番, カテゴリ, 製造業者等名, 型番, 製造業者等名の略称, コード, 大小区分, 品目・料金区分コード, リサイクル料金(税込), 備考
 """
 
@@ -30,8 +29,8 @@ if uploaded_files:
         all_data = []
         progress_bar = st.progress(0)
         
-        # モデルの設定
-        model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+        # 【修正ポイント】モデル名を「models/gemini-1.5-flash」に固定
+        model = genai.GenerativeModel("models/gemini-1.5-flash")
 
         for i, file in enumerate(uploaded_files):
             st.write(f"🔍 {i+1}枚目: {file.name} を解析中...")
@@ -42,40 +41,31 @@ if uploaded_files:
                 response = model.generate_content([SYSTEM_PROMPT, img])
                 text = response.text.strip().replace("```csv", "").replace("```", "")
                 
-                # 行を分割して整理
                 for line in text.split("\n"):
                     parts = line.split(",")
                     if len(parts) >= 8 and "カテゴリ" not in line:
                         row = [item.strip() for item in parts]
-                        row[0] = i + 1 # 通番をセット
+                        row[0] = i + 1
                         all_data.append(row)
             except Exception as e:
                 st.error(f"解析エラー: {e}")
             
             progress_bar.progress((i + 1) / len(uploaded_files))
 
-        # --- 4. 結果表示とExcel保存 ---
         if all_data:
             st.success("全ての解析が完了しました！")
-            
             columns = ["通番", "カテゴリ", "製造業者等名", "型番", "製造業者等名の略称", "コード", "大小区分", "品目・料金区分コード", "リサイクル料金(税込)", "備考"]
             df = pd.DataFrame(all_data, columns=columns)
-            
-            # 画面に表を表示
-            st.subheader("📊 解析結果プレビュー")
             st.dataframe(df, use_container_width=True)
 
-            # --- Excelファイルを作成 ---
+            # Excelファイル作成
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 df.to_excel(writer, index=False, sheet_name='査定リスト')
             
-            st.subheader("💾 Excel保存")
             st.download_button(
                 label="Excelファイルをダウンロードする",
                 data=buffer.getvalue(),
                 file_name="家電リサイクル査定リスト_2026.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-        else:
-            st.warning("有効なデータを取得できませんでした。もう一度撮影し直すか、査定を開始してください。")
