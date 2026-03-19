@@ -6,38 +6,39 @@ import io
 
 # --- 1. アプリの設定 ---
 st.set_page_config(page_title="家電リサイクル査定くん", layout="wide")
-st.title("📱 家電リサイクル査定くん (2026.2版)")
+st.title("📱 家電リサイクル査定くん (2026.2確定版)")
+st.write("写真をアップロードして「査定開始」を押してください。")
 
 # 魔法の鍵を読み込み
 api_key = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=api_key)
 
-# --- 2. AIへの指示書（Excel貼り付けに特化） ---
+# --- 2. AIへの指示書（ここが精度の肝です） ---
 SYSTEM_PROMPT = """
-あなたは家電リサイクル査定の専門家です。
-写真から製品情報を抽出し、Google検索で「RKC 一般財団法人家電リサイクル券センター」の【2026年2月版 最新料金表】と照合してください。
+あなたは家電リサイクル査定のプロです。
+写真から製品情報を抽出し、Google検索で「RKC 2026年2月版 料金表」を確認して、正確なコードと料金を特定してください。
 
-### 【重要】出力形式のルール:
-- 結果は必ず「タブ区切り」の形式で出力してください。
-- Markdownの表（ | で区切る形式）は絶対に禁止です。
-- 1行目は必ず以下のヘッダーにしてください。
+【出力の絶対ルール】
+1. Markdownの表（| や --- など）は絶対に、一切、使わないでください。
+2. 項目と項目の間は、必ず「タブ文字」1つで区切ってください。
+3. 余計な説明（「解析結果です」など）は一切書かず、データ行のみを出力してください。
+4. 1行目は必ず以下の項目名（タブ区切り）にしてください。
 通番	カテゴリ	製造業者等名	型番	製造業者等名の略称	コード	大小区分	品目・料金区分コード	リサイクル料金(税込)	備考
-
-### 判定ルール:
-- カテゴリは [ テレビ / 冷蔵庫 / 冷凍庫 / 洗濯機 / エアコン ] から選択。
-- 備考欄には、テレビなら「液晶・プラズマ/ブラウン管」と「型数」、冷蔵・冷凍庫なら「全定格内容積：〇〇L」を記載。
-- 略称・コード・料金は、RKCの2026年2月版データと一文字も違わず一致させてください。
 """
 
 # --- 3. 操作画面 ---
-uploaded_files = st.file_uploader("写真をアップロード", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
+uploaded_files = st.file_uploader("写真をアップロード（複数可）", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
 
 if uploaded_files:
     if st.button("査定を開始する"):
-        all_results = []
+        all_rows = []
+        # ヘッダーを最初に入れる
+        header = "通番	カテゴリ	製造業者等名	型番	製造業者等名の略称	コード	大小区分	品目・料金区分コード	リサイクル料金(税込)	備考"
+        all_rows.append(header)
+        
         progress_bar = st.progress(0)
         
-        # モデルの準備
+        # モデルの設定（エラーが出にくい設定に変更）
         model = genai.GenerativeModel(
             model_name="gemini-1.5-pro",
             tools=[{'google_search_retrieval': {}}]
@@ -45,30 +46,37 @@ if uploaded_files:
 
         for i, file in enumerate(uploaded_files):
             st.write(f"🔍 {file.name} を解析中...")
-            
-            # 【修正点】画像読み込みをPillowに変更
             img = Image.open(file)
             
-            # AIに依頼
-            response = model.generate_content([SYSTEM_PROMPT, img])
-            
-            # 結果を整理（余計な文字を削除）
-            clean_text = response.text.replace("```text", "").replace("```", "").strip()
-            all_results.append(clean_text)
+            try:
+                # 解析実行
+                response = model.generate_content([SYSTEM_PROMPT, img])
+                # 不要な記号を徹底的に掃除
+                clean_text = response.text.replace("```text", "").replace("```", "").replace("|", "").strip()
+                # ヘッダーが重複して出てきた場合は削除
+                if "カテゴリ" in clean_text and i > 0:
+                    clean_text = "\n".join(clean_text.split("\n")[1:])
+                
+                all_rows.append(clean_text)
+            except Exception as e:
+                st.error(f"エラーが発生しました: {e}")
             
             progress_bar.progress((i + 1) / len(uploaded_files))
 
         # --- 4. 結果表示 ---
         st.success("完了しました！")
+        final_output = "\n".join(all_rows)
         
-        # 画面に表示
-        final_output = "\n".join(all_results)
-        st.text_area("Excel貼り付け用データ（これをコピーしてExcelのA1に貼ってください）", final_output, height=300)
+        # 視覚的な確認用の表（Excelっぽく見せる）
+        st.subheader("📊 プレビュー")
+        try:
+            df = pd.read_csv(io.StringIO(final_output), sep='\t')
+            st.dataframe(df, use_container_width=True)
+        except:
+            st.text("プレビューの作成に失敗しましたが、下のテキストはコピー可能です。")
+
+        # Excel貼り付け用エリア
+        st.subheader("📋 Excel貼り付け用テキスト")
+        st.text_area("下の枠内を全選択（Ctrl+A）してコピーし、ExcelのA1セルに貼り付けてください。", final_output, height=300)
         
-        # ダウンロードボタン
-        st.download_button(
-            label="ファイルを保存",
-            data=final_output,
-            file_name="recycle_data.txt",
-            mime="text/plain"
-        )
+        st.download_button(label="ファイルを保存", data=final_output, file_name="recycle_data.txt")
